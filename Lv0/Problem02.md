@@ -6,21 +6,32 @@
 ```csharp
 static void Main()
 {
-    
+    string[] input = Console.ReadLine().Split(' ');
+    string str = input[0];
+    int count = int.Parse(input[1]);
+
+    for(int i = 0; i < count; i++)
+    {
+        Console.Write(str);
+    }
 }
 ```
 
 ## [문제]
+
 문자열 str과 정수 n이 주어집니다.
 str이 n번 반복된 문자열을 만들어 출력하는 코드를 작성해 보세요.
 
 ## [문제 해결 과정]
- ※ 문제를 해결하는데 어떤 사고 과정을 거쳤는지, 어떤 자료구조 알고리즘을 왜 선택했는지 등 구체적인 근거를 설명할 수 있어야 함
- 1. 입력을 받아 문자열로 저장
- 2. str과 n을 변수로 생성해서 입력값을 할당
- 3. for문을 통해 Console.Write() n만큼 반복
+
+※ 문제를 해결하는데 어떤 사고 과정을 거쳤는지, 어떤 자료구조 알고리즘을 왜 선택했는지 등 구체적인 근거를 설명할 수 있어야 함
+
+1.  입력을 받아 문자열로 저장
+2.  str과 n을 변수로 생성해서 입력값을 할당
+3.  for문을 통해 Console.Write() n만큼 반복
 
 ## [후기]
+
 풀이 시간 : 3분
 
 StringBuilder에 문자열을 n번만큼 반복 저장한다음 한번에 Console.Write하는것도 괜찮은 것 같다. 다른 풀이를 보니까 그렇게 풀기도 했고. Console.Write()의 비용이 어느정도인지 알 필요가 있어보인다.
