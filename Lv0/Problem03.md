@@ -36,8 +36,8 @@ static void Main()
 풀이시간 : 10분 20초  
 오랜만에 아스키 코드표를 찾아봤다..
 
-다른 사람들의 풀이를 보니 내 풀이 방법은 재밌는방법에 속하는 듯 하다. 아니 `char.IsUpper()`, `char.ToUpper()`같은 함수 있는거 알았으면 나도 그거 썼지...
-![문제 풀이 반응](../Description_Images/Lv0_Problem03_SolveReaction.png)  
+다른 사람들의 풀이를 보니 내 풀이 방법은 재밌는방법에 속하는 듯 하다. 아니 `char.IsUpper()`, `char.ToUpper()`같은 함수 있는거 알았으면 나도 그거 썼지...\
+![문제 풀이 반응](../Description_Images/Lv0_Problem03_SolveReaction.png)\
 나랑 똑같이 편한 방법을 몰랐던 사람도 있다...
 
 
