@@ -1,0 +1,339 @@
+name: Update problem READMEs
+
+on:
+  push:
+    paths:
+      - "**/*.md"
+      - ".github/workflows/update-problem-readmes.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-problem-readmes
+  cancel-in-progress: false
+
+jobs:
+  update-readmes:
+    # 기본 브랜치에서 실행할 때만 갱신한다.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: 저장소 가져오기
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Python 준비
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: YAML 읽기 도구 설치
+        run: python -m pip install PyYAML==6.0.3
+
+      - name: README 표 생성
+        run: |
+          python - <<'PY'
+          import datetime
+          import html
+          import re
+          import subprocess
+          from pathlib import Path
+          from urllib.parse import quote
+
+          import yaml
+
+          START = "<!-- PROBLEM-TABLE:START -->"
+          END = "<!-- PROBLEM-TABLE:END -->"
+
+          # 세 자리 이상의 번호_제목.md
+          FILE_PATTERN = re.compile(r"^(\d{3,})_(.+)\.md$")
+
+
+          def escape_cell(value):
+              """표 안의 특수문자와 줄바꿈을 처리한다."""
+              text = " ".join(str(value).splitlines())
+              text = html.escape(text, quote=False)
+
+              return re.sub(
+                  r"([\\`*_{}\[\]()!|])",
+                  lambda match: "\\" + match.group(1),
+                  text,
+              )
+
+
+          def category_cell(value):
+              # 줄바꿈과 표 구분자만 처리하고, 백틱은 유지한다.
+              text = " ".join(str(value).splitlines())
+              text = html.escape(text, quote=False)
+              return text.replace("|", r"\|")
+
+
+          def read_metadata(path):
+              """문서 맨 위의 YAML에서 분류와 날짜를 읽는다."""
+              text = path.read_text(encoding="utf-8-sig")
+              lines = text.splitlines()
+
+              if not lines or lines[0].strip() != "---":
+                  print(f"메타데이터 없음: {path}")
+                  return "미분류", "—"
+
+              closing = next(
+                  (
+                      i for i in range(1, len(lines))
+                      if lines[i].strip() == "---"
+                  ),
+                  None,
+              )
+
+              if closing is None:
+                  raise ValueError(
+                      f"메타데이터 종료 표시가 없습니다: {path}"
+                  )
+
+              data = yaml.safe_load(
+                  "\n".join(lines[1:closing])
+              )
+
+              if data is None:
+                  data = {}
+
+              if not isinstance(data, dict):
+                  raise ValueError(
+                      f"메타데이터는 키와 값 형태여야 합니다: {path}"
+                  )
+
+              # categories: 문자열 한 개 또는 문자열 목록
+              categories = data.get("categories", [])
+
+              if categories is None:
+                  categories = []
+
+              if isinstance(categories, str):
+                  categories = [categories]
+
+              if not isinstance(categories, list):
+                  raise ValueError(
+                      f"categories 형식을 확인하세요: {path}"
+                  )
+
+              if any(
+                  not isinstance(item, str) or not item.strip()
+                  for item in categories
+              ):
+                  raise ValueError(
+                      f"분류에는 비어 있지 않은 문자열만 사용하세요: {path}"
+                  )
+
+              # 순서를 유지하면서 중복 분류 제거
+              categories = list(
+                  dict.fromkeys(
+                      item.strip() for item in categories
+                  )
+              )
+
+              category_text = ", ".join(categories) or "미분류"
+
+              # date: YYYY-MM-DD
+              date = data.get("date")
+
+              if date is None or date == "":
+                  date_text = "—"
+
+              elif isinstance(date, datetime.datetime):
+                  raise ValueError(
+                      f"date에는 시간 없이 YYYY-MM-DD만 적으세요: {path}"
+                  )
+
+              elif isinstance(date, datetime.date):
+                  date_text = date.isoformat()
+
+              elif (
+                  isinstance(date, str)
+                  and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date)
+              ):
+                  # 실제로 존재하는 날짜인지도 검사
+                  date_text = datetime.date.fromisoformat(date).isoformat()
+
+              else:
+                  raise ValueError(
+                      f"date 형식은 YYYY-MM-DD입니다: {path}"
+                  )
+
+              return category_text, date_text
+
+
+          # 1. Git이 추적하는 파일 목록 읽기
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          files = [
+              Path(item.decode("utf-8"))
+              for item in raw.split(b"\0")
+              if item
+          ]
+
+          # 2. README 위치 수집
+          readmes = {}
+
+          for path in files:
+              if path.is_symlink() or not path.is_file():
+                  continue
+
+              if path.name.lower() == "readme.md":
+                  if path.parent in readmes:
+                      raise ValueError(
+                          f"같은 폴더에 README가 여러 개 있습니다: {path.parent}"
+                      )
+
+                  readmes[path.parent] = path
+
+          # README마다 문제 목록을 준비한다.
+          # 문제를 모두 삭제한 README도 빈 표로 갱신하기 위해
+          # 모든 README를 먼저 등록한다.
+          groups = {
+              readme: []
+              for readme in readmes.values()
+          }
+
+          # 3. 문제 파일을 가장 가까운 상위 README에 배정
+          for path in files:
+              match = FILE_PATTERN.fullmatch(path.name)
+
+              if not match:
+                  continue
+
+              if path.is_symlink() or not path.is_file():
+                  continue
+
+              owner = next(
+                  (
+                      readmes[parent]
+                      for parent in path.parents
+                      if parent in readmes
+                  ),
+                  None,
+              )
+
+              if owner is None:
+                  print(f"상위 README가 없어 건너뜀: {path}")
+                  continue
+
+              categories, date = read_metadata(path)
+
+              groups[owner].append(
+                  (
+                      int(match.group(1)),
+                      match.group(2),
+                      path,
+                      categories,
+                      date,
+                  )
+              )
+
+          # 모든 입력을 검사한 뒤에만 파일을 수정한다.
+          updates = []
+
+          # 4. README별 정렬 및 표 생성
+          for readme, entries in sorted(
+              groups.items(),
+              key=lambda item: item[0].as_posix(),
+          ):
+              # 지정 영역 밖의 줄바꿈과 BOM도 유지한다.
+              original = readme.read_bytes().decode("utf-8")
+
+              if START not in original and END not in original:
+                  print(f"자동 생성 표시가 없어 건너뜀: {readme}")
+                  continue
+
+              if (
+                  original.count(START) != 1
+                  or original.count(END) != 1
+                  or original.index(START) >= original.index(END)
+              ):
+                  raise ValueError(
+                      f"자동 생성 표시를 확인하세요: {readme}"
+                  )
+
+              entries.sort(
+                  key=lambda item: (
+                      item[0],
+                      item[2].as_posix(),
+                  )
+              )
+
+              lines = [
+                  "",
+                  "| 번호 | 문제 | 분류 | 작성일 |",
+                  "| :---: | --- | --- | --- |",
+              ]
+
+              for number, title, path, categories, date in entries:
+                  relative = path.relative_to(
+                      readme.parent
+                  ).as_posix()
+
+                  # 한글·공백 등이 들어간 경로도 링크로 처리
+                  url = "./" + quote(relative, safe="/")
+
+                  lines.append(
+                      f"| {number:03d} "
+                      f"| [{escape_cell(title)}]({url}) "
+                      f"| {category_cell(categories)} "
+                      f"| {date} |"
+                  )
+
+              lines.append("")
+
+              newline = (
+                  "\r\n" if "\r\n" in original else "\n"
+              )
+
+              begin = original.index(START) + len(START)
+              finish = original.index(END)
+
+              # 시작·종료 표시 사이만 교체
+              updated = (
+                  original[:begin]
+                  + newline.join(lines)
+                  + original[finish:]
+              )
+
+              if updated != original:
+                  updates.append((readme, updated))
+
+          # 5. 변경된 README만 저장하고 스테이징
+          for path, content in updates:
+              path.write_bytes(content.encode("utf-8"))
+
+              subprocess.run(
+                  ["git", "add", "--", path.as_posix()],
+                  check=True,
+              )
+
+              print(f"갱신 완료: {path}")
+
+          print(f"변경된 README: {len(updates)}개")
+          PY
+
+      - name: 변경 사항 커밋 및 push
+        run: |
+          if git diff --cached --quiet; then
+            echo "변경된 README가 없습니다."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit -m "docs: update problem tables"
+          git push
