@@ -11,8 +11,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Print a message
-        run: echo "Hello from GitHub Actions!"
+      - name: 가져오기 전 파일 목록
+        run: ls -la
 
-      - name: Show the working directory
-        run: pwd
+      - name: 저장소 가져오기
+        uses: actions/checkout@v7
+
+      - name: 가져온 후 파일 목록
+        run: ls -la
+
+      - name: 현재 커밋 확인
+        run: git log -1 --oneline
