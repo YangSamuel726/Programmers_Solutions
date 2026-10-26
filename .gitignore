@@ -75,3 +75,6 @@ compile_commands.json
 *.swp
 *.swo
 *~
+
+# LocalPrivate
+LocalPrivateRoom/
